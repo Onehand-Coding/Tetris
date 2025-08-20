@@ -102,7 +102,9 @@ class Matris(object):
         self.highscore = load_score()
         self.played_highscorebeaten_sound = False
 
-        # Load sound effects
+        # Track if a hard drop occurred for sound effects
+        self.hard_drop_occurred = False
+
         self.levelup_sound  = get_sound("levelup.wav")
         self.gameover_sound = get_sound("gameover.wav")
         self.linescleared_sound = get_sound("linecleared.wav")
@@ -132,6 +134,7 @@ class Matris(object):
             amount += 1
         self.score += 10*amount
         self.drop_sound.play()
+        self.hard_drop_occurred = True
 
         self.lock_tetromino()
 
@@ -367,7 +370,14 @@ class Matris(object):
 
         self.combo = self.combo + 1 if lines_cleared else 1
 
+        # Play drop sound when tetromino locks naturally (not hard dropped)
+        if not self.hard_drop_occurred and not lines_cleared:
+            self.drop_sound.play()
+
         self.set_tetrominoes()
+        
+        # Reset the hard drop flag for the next piece
+        self.hard_drop_occurred = False
 
         if not self.blend():
             self.gameover_sound.play()
