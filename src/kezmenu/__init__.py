@@ -1,0 +1,2 @@
+from .kezmenu import KezMenu
+
