@@ -14,6 +14,18 @@ def load_score():
 
     return scores[0] if scores else 0
 
+def load_high_scores(count=5):
+    """ Returns the top 'count' high scores, or empty list if no scores yet """
+    try:
+        with open(scorefile) as file:
+            scores = sorted([int(score.strip())
+                             for score in file.readlines()
+                             if score.strip().isdigit()], reverse=True)
+    except IOError:
+        scores = []
+
+    return scores[:count] if scores else []
+
 def write_score(score):
     assert str(score).isdigit()
     with open(scorefile, 'a') as file:

@@ -13,9 +13,30 @@ from .scores import load_score, write_score
 class GameOver(Exception):
     """Exception used for its control flow properties"""
 
+# Global sound manager
+sound_manager = None
+
+
 def get_sound(filename):
     try:
-        return pygame.mixer.Sound(os.path.join(os.path.dirname(__file__), "resources", filename))
+        sound = pygame.mixer.Sound(os.path.join(os.path.dirname(__file__), "resources", "sounds", filename))
+        # Wrap the sound with a play method that uses the sound manager
+        class ManagedSound:
+            def __init__(self, sound):
+                self._sound = sound
+                
+            def play(self):
+                global sound_manager
+                if sound_manager:
+                    sound_manager.play_sound(self._sound)
+                else:
+                    # Fallback if sound manager not initialized
+                    try:
+                        self._sound.play()
+                    except:
+                        pass
+                        
+        return ManagedSound(sound)
     except (pygame.error, FileNotFoundError):
         # Return a dummy sound object that doesn't crash when play() is called
         class DummySound:
@@ -81,10 +102,18 @@ class Matris(object):
         self.highscore = load_score()
         self.played_highscorebeaten_sound = False
 
+        # Load sound effects
         self.levelup_sound  = get_sound("levelup.wav")
         self.gameover_sound = get_sound("gameover.wav")
         self.linescleared_sound = get_sound("linecleared.wav")
         self.highscorebeaten_sound = get_sound("highscorebeaten.wav")
+        self.clear_sound = get_sound("clear.wav")
+        self.drop_sound = get_sound("drop.wav")
+        self.lateralmove_sound = get_sound("lateralmove.wav")
+        self.rotate_sound = get_sound("rotate.wav")
+        self.select_sound = get_sound("select.wav")
+        self.start_sound = get_sound("start.wav")
+        self.tetris_sound = get_sound("tetris.wav")
 
 
     def set_tetrominoes(self):
@@ -102,6 +131,7 @@ class Matris(object):
         while self.request_movement('down'):
             amount += 1
         self.score += 10*amount
+        self.drop_sound.play()
 
         self.lock_tetromino()
 
@@ -235,7 +265,7 @@ class Matris(object):
         if position and self.blend(shape, position):
             self.tetromino_rotation = rotation
             self.tetromino_position = position
-            
+            self.rotate_sound.play()
             self.needs_redraw = True
             return self.tetromino_rotation
         else:
@@ -245,10 +275,12 @@ class Matris(object):
         posY, posX = self.tetromino_position
         if direction == 'left' and self.blend(position=(posY, posX-1)):
             self.tetromino_position = (posY, posX-1)
+            self.lateralmove_sound.play()
             self.needs_redraw = True
             return self.tetromino_position
         elif direction == 'right' and self.blend(position=(posY, posX+1)):
             self.tetromino_position = (posY, posX+1)
+            self.lateralmove_sound.play()
             self.needs_redraw = True
             return self.tetromino_position
         elif direction == 'up' and self.blend(position=(posY-1, posX)):
@@ -310,8 +342,18 @@ class Matris(object):
         self.lines += lines_cleared
 
         if lines_cleared:
-            if lines_cleared >= 4:
+            # Play appropriate line clear sound
+            if lines_cleared == 1:
+                self.clear_sound.play()
+            elif lines_cleared == 2:
+                self.clear_sound.play()
+            elif lines_cleared == 3:
+                self.clear_sound.play()
+            elif lines_cleared >= 4:
+                self.tetris_sound.play()
+            else:
                 self.linescleared_sound.play()
+                
             self.score += 100 * (lines_cleared**2) * self.combo
 
             if not self.played_highscorebeaten_sound and self.score > self.highscore:
@@ -479,12 +521,17 @@ class Menu(object):
     running = True
     def main(self, screen):
         clock = pygame.time.Clock()
+        
+        # Create main menu
         menu = kezmenu.KezMenu(
-            ['Play!', lambda: Game().main(screen)],
+            ['Play!', lambda: self.start_game(screen)],
+            ['Options', lambda: self.show_options(screen)],
+            ['High Scores', lambda: self.show_high_scores(screen)],
             ['Quit', lambda: setattr(self, 'running', False)],
         )
         menu.position = (50, 50)
-        menu.enableEffect('enlarge-font-on-focus', font=None, size=60, enlarge_factor=1.2, enlarge_time=0.3)
+        # Set a larger base font size
+        menu.font = pygame.font.Font(None, 60)
         menu.color = (255,255,255)
         menu.focus_color = (40, 200, 40)
 
@@ -512,11 +559,303 @@ class Menu(object):
             menu.draw(screen)
             pygame.display.flip()
 
+    def start_game(self, screen):
+        """Start the game and play the start sound"""
+        # Play start sound
+        try:
+            start_sound = get_sound("start.wav")
+            start_sound.play()
+        except:
+            pass  # If sound fails, continue anyway
+        Game().main(screen)
+
+    def show_options(self, screen):
+        """Show the options menu with custom UI elements"""
+        global sound_manager
+        
+        # Play select sound
+        try:
+            select_sound = get_sound("select.wav")
+            sound_manager.play_sound(select_sound)
+        except:
+            pass  # If sound fails, continue anyway
+            
+        clock = pygame.time.Clock()
+        nightmare = construct_nightmare(screen.get_size())
+        
+        # Font setup
+        title_font = pygame.font.Font(None, 70)
+        option_font = pygame.font.Font(None, 50)
+        
+        # UI element positions
+        title_y = 100
+        mute_y = 200
+        volume_y = 300
+        back_y = 400
+        
+        # Slider properties
+        slider_x = WIDTH // 2 - 100
+        slider_width = 200
+        slider_height = 20
+        slider_knob_radius = 10
+        
+        # Checkbox properties
+        checkbox_size = 30
+        checkbox_x = WIDTH // 2 - 100
+        checkbox_y = mute_y - checkbox_size // 2
+        
+        # Button properties
+        button_width = 200
+        button_height = 50
+        
+        # Mouse state
+        mouse_pressed = False
+        
+        while True:
+            events = pygame.event.get()
+            
+            # Handle events
+            for event in events:
+                if event.type == pygame.QUIT:
+                    exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        return  # Return to main menu
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left mouse button
+                        mouse_pressed = True
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    if event.button == 1:  # Left mouse button
+                        mouse_pressed = False
+            
+            # Get mouse position
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            
+            # Handle mute/unmute checkbox
+            checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
+            if mouse_pressed and checkbox_rect.collidepoint(mouse_x, mouse_y):
+                sound_manager.toggle_sound()
+                # Play sound effect for checkbox toggle
+                try:
+                    select_sound = get_sound("select.wav")
+                    sound_manager.play_sound(select_sound)
+                except:
+                    pass
+                mouse_pressed = False  # Prevent continuous toggling
+            
+            # Handle volume slider
+            slider_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, slider_width, slider_height)
+            if mouse_pressed and slider_rect.collidepoint(mouse_x, mouse_y):
+                # Calculate new volume based on mouse position
+                relative_x = max(0, min(slider_width, mouse_x - slider_x))
+                new_volume = relative_x / slider_width
+                sound_manager.sound_volume = new_volume
+                if not sound_manager.sound_muted:
+                    pygame.mixer.music.set_volume(new_volume)
+            
+            # Handle back button
+            back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, back_y - button_height // 2, button_width, button_height)
+            if (mouse_pressed and back_button_rect.collidepoint(mouse_x, mouse_y)) or \
+               any(event.type == pygame.KEYDOWN and (event.key == pygame.K_RETURN or event.key == pygame.K_SPACE) for event in events):
+                # Play sound effect for back button
+                try:
+                    select_sound = get_sound("select.wav")
+                    sound_manager.play_sound(select_sound)
+                except:
+                    pass
+                return  # Return to main menu
+            
+            # Draw background
+            screen.blit(nightmare, (0, 0))
+            
+            # Draw title
+            title = title_font.render("OPTIONS", True, (255, 255, 255))
+            screen.blit(title, title.get_rect(centerx=WIDTH // 2, top=title_y))
+            
+            # Draw mute/unmute checkbox
+            pygame.draw.rect(screen, (255, 255, 255), checkbox_rect, 2)
+            if sound_manager.sound_muted:
+                # Draw checkmark
+                pygame.draw.line(screen, (255, 255, 255), 
+                                (checkbox_x + 5, checkbox_y + 15),
+                                (checkbox_x + 12, checkbox_y + 22), 3)
+                pygame.draw.line(screen, (255, 255, 255),
+                                (checkbox_x + 12, checkbox_y + 22),
+                                (checkbox_x + 25, checkbox_y + 8), 3)
+            
+            # Draw mute label
+            mute_text = option_font.render("Mute Sound", True, (255, 255, 255))
+            screen.blit(mute_text, (checkbox_x + checkbox_size + 10, mute_y - mute_text.get_height() // 2))
+            
+            # Draw volume label
+            volume_label = option_font.render("Volume", True, (255, 255, 255))
+            screen.blit(volume_label, volume_label.get_rect(centerx=WIDTH // 2, centery=volume_y - 40))
+            
+            # Draw volume slider
+            pygame.draw.rect(screen, (100, 100, 100), slider_rect)
+            pygame.draw.rect(screen, (255, 255, 255), slider_rect, 2)
+            
+            # Draw slider fill
+            fill_width = int(slider_width * sound_manager.sound_volume)
+            if fill_width > 0:
+                fill_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, fill_width, slider_height)
+                pygame.draw.rect(screen, (40, 200, 40), fill_rect)
+            
+            # Draw slider knob
+            knob_x = slider_x + int(slider_width * sound_manager.sound_volume)
+            knob_y = volume_y
+            pygame.draw.circle(screen, (255, 255, 255), (knob_x, knob_y), slider_knob_radius)
+            pygame.draw.circle(screen, (40, 200, 40), (knob_x, knob_y), slider_knob_radius - 2)
+            
+            # Draw volume percentage
+            volume_text = option_font.render(f"{int(sound_manager.sound_volume * 100)}%", True, (255, 255, 255))
+            screen.blit(volume_text, volume_text.get_rect(centerx=WIDTH // 2, centery=volume_y + 40))
+            
+            # Draw back button
+            back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
+            pygame.draw.rect(screen, back_color, back_button_rect, border_radius=10)
+            pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
+            back_text = option_font.render("BACK", True, (255, 255, 255))
+            screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
+            
+            pygame.display.flip()
+            clock.tick(30)
+
+    def toggle_sound(self):
+        """Toggle sound mute/unmute"""
+        self.sound_muted = not self.sound_muted
+        if self.sound_muted:
+            pygame.mixer.music.set_volume(0.0)
+        else:
+            pygame.mixer.music.set_volume(self.sound_volume)
+            
+        # Play confirmation sound if unmuting
+        if not self.sound_muted:
+            try:
+                select_sound = get_sound("select.wav")
+                select_sound.play()
+            except:
+                pass
+
+    def adjust_volume(self, delta):
+        """Adjust sound volume"""
+        self.sound_volume = max(0.0, min(1.0, self.sound_volume + delta))
+        if not self.sound_muted:
+            pygame.mixer.music.set_volume(self.sound_volume)
+        
+        # Play confirmation sound
+        try:
+            select_sound = get_sound("select.wav")
+            if not self.sound_muted:
+                select_sound.play()
+        except:
+            pass
+
     def construct_highscoresurf(self):
         font = pygame.font.Font(None, 50)
         highscore = load_score()
         text = "Highscore: {}".format(highscore)
         return font.render(text, True, (255,255,255))
+
+    def show_high_scores(self, screen):
+        """Show the high scores screen"""
+        global sound_manager
+        
+        # Play select sound
+        try:
+            select_sound = get_sound("select.wav")
+            sound_manager.play_sound(select_sound)
+        except:
+            pass  # If sound fails, continue anyway
+            
+        clock = pygame.time.Clock()
+        
+        # Load high scores
+        from .scores import load_high_scores
+        highscores = load_high_scores(5)  # Load top 5 scores
+        
+        # Fonts
+        font_large = pygame.font.Font(None, 70)
+        font_medium = pygame.font.Font(None, 50)
+        font_small = pygame.font.Font(None, 40)
+        
+        # Title
+        title = font_large.render("HIGH SCORES", True, (255, 255, 255))
+        
+        # Back button
+        button_width = 200
+        button_height = 50
+        back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, HEIGHT - 100, button_width, button_height)
+        
+        nightmare = construct_nightmare(screen.get_size())
+        
+        while True:
+            events = pygame.event.get()
+            
+            # Handle events
+            for event in events:
+                if event.type == pygame.QUIT:
+                    exit()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        # Play sound effect for back button
+                        try:
+                            select_sound = get_sound("select.wav")
+                            sound_manager.play_sound(select_sound)
+                        except:
+                            pass
+                        return  # Return to main menu
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left mouse button
+                        if back_button_rect.collidepoint(event.pos):
+                            # Play sound effect for back button
+                            try:
+                                select_sound = get_sound("select.wav")
+                                sound_manager.play_sound(select_sound)
+                            except:
+                                pass
+                            return  # Return to main menu
+            
+            # Draw background
+            screen.blit(nightmare, (0, 0))
+            
+            # Draw title
+            screen.blit(title, title.get_rect(centerx=WIDTH/2, top=50))
+            
+            # Draw high scores
+            if highscores:
+                for i, score in enumerate(highscores):
+                    score_text = font_medium.render(f"{i+1}. {score}", True, (255, 255, 255))
+                    screen.blit(score_text, score_text.get_rect(centerx=WIDTH/2, top=150 + i*60))
+            else:
+                no_scores_text = font_medium.render("No scores yet!", True, (255, 255, 255))
+                screen.blit(no_scores_text, no_scores_text.get_rect(centerx=WIDTH/2, top=150))
+            
+            # Draw instruction
+            instruction = font_small.render("Press ESC or click BACK to return", True, (200, 200, 200))
+            screen.blit(instruction, instruction.get_rect(centerx=WIDTH/2, top=HEIGHT - 150))
+            
+            # Draw back button
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
+            pygame.draw.rect(screen, back_color, back_button_rect, border_radius=10)
+            pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
+            back_text = font_small.render("BACK", True, (255, 255, 255))
+            screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
+            
+            pygame.display.flip()
+            clock.tick(30)
+
+    def play_sound(self, sound):
+        """Play a sound if sound is not muted"""
+        # This would need to be connected to the menu's sound settings
+        # For now, we'll just play the sound directly
+        # In a full implementation, we'd check the global sound settings
+        try:
+            sound.play()
+        except:
+            pass
+
 
 def construct_nightmare(size):
     surf = Surface(size)
@@ -538,8 +877,56 @@ def construct_nightmare(size):
     return surf
 
 
+class SoundManager:
+    """Manages sound settings for the entire game"""
+    def __init__(self):
+        self.sound_muted = False
+        self.sound_volume = 0.5  # Volume level (0.0 to 1.0)
+        
+    def toggle_sound(self):
+        """Toggle sound mute/unmute"""
+        self.sound_muted = not self.sound_muted
+        if self.sound_muted:
+            pygame.mixer.music.set_volume(0.0)
+        else:
+            pygame.mixer.music.set_volume(self.sound_volume)
+            
+    def adjust_volume(self, delta):
+        """Adjust sound volume"""
+        self.sound_volume = max(0.0, min(1.0, self.sound_volume + delta))
+        if not self.sound_muted:
+            pygame.mixer.music.set_volume(self.sound_volume)
+            
+    def play_sound(self, sound):
+        """Play a sound if sound is not muted"""
+        if not self.sound_muted:
+            try:
+                sound.play()
+            except:
+                pass
+
+
 def main():
+    global sound_manager
+    
+    pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
+
+    # Initialize mixer for sound
+    pygame.mixer.init()
+    
+    # Initialize sound manager
+    sound_manager = SoundManager()
+    
+    # Load and play background music
+    try:
+        background_music = os.path.join(os.path.dirname(__file__), "resources", "sounds", "background.wav")
+        pygame.mixer.music.load(background_music)
+        pygame.mixer.music.play(-1)  # Loop indefinitely
+        pygame.mixer.music.set_volume(sound_manager.sound_volume)  # Set initial volume
+    except (pygame.error, FileNotFoundError):
+        # If background music is not found, continue without it
+        pass
 
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("MaTris")

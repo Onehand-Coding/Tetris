@@ -10,6 +10,8 @@ A classic Tetris game implementation in Python using Pygame.
 - Smooth piece movement and rotation
 - Shadow piece preview
 - Pause functionality
+- Professional menu system with multiple options
+- Full sound system with background music and sound effects
 - Menu system with keyboard and mouse controls
 
 ## Installation
@@ -48,6 +50,29 @@ tetris
 - **P**: Pause/unpause game
 - **Escape**: Return to menu from game
 - **Mouse**: Navigate menus
+
+## Menu Options
+
+The game now features a professional menu system with the following options:
+- **Play!**: Start a new game
+- **Options**: Access game options (sound controls, key bindings)
+- **High Scores**: View the current high score
+- **Quit**: Exit the game
+
+## Sound System
+
+The game includes a full sound system with:
+- Background music that loops continuously
+- Sound effects for all game actions:
+  - Piece movement (left/right)
+  - Piece rotation
+  - Line clearing
+  - Hard drop
+  - Level up
+  - Game over
+  - High score achieved
+  - Tetris (4 lines cleared)
+- Sound controls available in the options menu
 
 ## Development
 
@@ -88,6 +113,8 @@ What I have done:
 - Reorganized code into a proper src layout
 - Added error handling for missing resources
 - Created packaging configuration and documentation
+- Integrated full sound system with background music and sound effects
+- Implemented professional menu system with multiple options
 
 ## Credits
 
