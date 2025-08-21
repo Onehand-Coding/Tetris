@@ -98,6 +98,7 @@ class Matris(object):
         self.combo = 1 # Combo will increase when you clear lines with several tetrominos in a row
         
         self.paused = False
+        self.pause_timer = 0  # Timer for how long the pause text has been displayed
 
         self.highscore = load_score()
         self.played_highscorebeaten_sound = False
@@ -149,16 +150,21 @@ class Matris(object):
         
         for event in events:
             if pressed(pygame.K_p):
-                self.surface.fill((0,0,0))
                 self.needs_redraw = True
                 self.paused = not self.paused
+                # Reset the pause timer when pausing
+                if self.paused:
+                    self.pause_timer = 0
             elif event.type == pygame.QUIT:
                 self.gameover(full_exit=True)
             elif pressed(pygame.K_ESCAPE):
                 self.gameover()
 
         if self.paused:
-            return self.needs_redraw
+            # Update the pause timer even when paused
+            self.pause_timer += timepassed
+            # Always return True to trigger redraw and show/hide pause symbol
+            return True
 
         for event in events:
             if pressed(pygame.K_SPACE):
@@ -180,9 +186,6 @@ class Matris(object):
                 self.movement_keys['right'] = 0
                 self.movement_keys_timer = (-self.movement_keys_speed)*2
 
-
-
-
         self.downwards_speed = self.base_downwards_speed ** (1 + self.level/10.)
 
         self.downwards_timer += timepassed
@@ -194,13 +197,12 @@ class Matris(object):
 
             self.downwards_timer %= downwards_speed
 
-
         if any(self.movement_keys.values()):
             self.movement_keys_timer += timepassed
         if self.movement_keys_timer > self.movement_keys_speed:
             self.request_movement('right' if self.movement_keys['right'] else 'left')
             self.movement_keys_timer %= self.movement_keys_speed
-        
+
         return self.needs_redraw
 
     def draw_surface(self):
@@ -216,9 +218,9 @@ class Matris(object):
                 else:
                     if with_tetromino[(y,x)][0] == 'shadow':
                         self.surface.fill(BGCOLOR, block_location)
-                    
+
                     self.surface.blit(with_tetromino[(y,x)][1], block_location)
-                    
+
     def gameover(self, full_exit=False):
         """
         Gameover occurs when a new tetromino does not fit after the old one has died, either
@@ -227,7 +229,7 @@ class Matris(object):
         """
 
         write_score(self.score)
-        
+
         if full_exit:
             exit()
         else:
@@ -250,7 +252,7 @@ class Matris(object):
                     return False
 
         return position
-                    
+
 
     def request_rotation(self):
         rotation = (self.tetromino_rotation + 1) % 4
@@ -273,7 +275,7 @@ class Matris(object):
             return self.tetromino_rotation
         else:
             return False
-            
+
     def request_movement(self, direction):
         posY, posX = self.tetromino_position
         if direction == 'left' and self.blend(position=(posY, posX-1)):
@@ -326,7 +328,7 @@ class Matris(object):
         boxarr = pygame.PixelArray(box)
         for x in range(len(boxarr)):
             for y in range(len(boxarr)):
-                boxarr[x][y] = tuple(list(map(lambda c: min(255, int(c*random.uniform(0.8, 1.2))), colors[color])) + end) 
+                boxarr[x][y] = tuple(list(map(lambda c: min(255, int(c*random.uniform(0.8, 1.2))), colors[color])) + end)
 
         del boxarr # deleting boxarr or else the box surface will be 'locked' or something like that and won't blit.
         border.blit(box, Rect(borderwidth, borderwidth, 0, 0))
@@ -356,7 +358,7 @@ class Matris(object):
                 self.tetris_sound.play()
             else:
                 self.linescleared_sound.play()
-                
+
             self.score += 100 * (lines_cleared**2) * self.combo
 
             if not self.played_highscorebeaten_sound and self.score > self.highscore:
@@ -375,14 +377,14 @@ class Matris(object):
             self.drop_sound.play()
 
         self.set_tetrominoes()
-        
+
         # Reset the hard drop flag for the next piece
         self.hard_drop_occurred = False
 
         if not self.blend():
             self.gameover_sound.play()
             self.gameover()
-            
+
         self.needs_redraw = True
 
     def remove_lines(self):
@@ -408,7 +410,7 @@ class Matris(object):
         """
         Does `shape` at `position` fit in `matrix`? If so, return a new copy of `matrix` where all
         the squares of `shape` have been placed in `matrix`. Otherwise, return False.
-        
+
         This method is often used simply as a test, for example to see if an action by the player is valid.
         It is also used in `self.draw_surface` to paint the falling tetromino and its shadow on the screen.
         """
@@ -448,30 +450,59 @@ class Game(object):
         self.screen = screen
 
         self.matris = Matris(screen)
-        
+
         screen.blit(construct_nightmare(screen.get_size()), (0,0))
-        
+
         matris_border = Surface((MATRIX_WIDTH*BLOCKSIZE+BORDERWIDTH*2, VISIBLE_MATRIX_HEIGHT*BLOCKSIZE+BORDERWIDTH*2))
         matris_border.fill(BORDERCOLOR)
         screen.blit(matris_border, (MATRIS_OFFSET,MATRIS_OFFSET))
-        
+
         self.redraw()
 
         while True:
             try:
                 timepassed = clock.tick(50)
-                if self.matris.update((timepassed / 1000.) if not self.matris.paused else 0):
+                # Always pass the actual timepassed to update, but the game logic only processes it when not paused
+                if self.matris.update(timepassed / 1000.):
                     self.redraw()
             except GameOver:
                 return
-      
+
 
     def redraw(self):
-        if not self.matris.paused:
-            self.blit_next_tetromino(self.matris.surface_of_next_tetromino)
-            self.blit_info()
+        # Draw the next tetromino, info panel, and game surface
+        self.blit_next_tetromino(self.matris.surface_of_next_tetromino)
+        self.blit_info()
+        self.matris.draw_surface()
 
-            self.matris.draw_surface()
+        # Draw pause symbol if the game is paused and the timer is within the display duration
+        if self.matris.paused and self.matris.pause_timer < 2.0:  # Show for 2 seconds
+            # Calculate the position within the game area (the subsurface)
+            game_area_width = MATRIX_WIDTH * BLOCKSIZE
+            game_area_height = (MATRIX_HEIGHT-2) * BLOCKSIZE
+
+            # Draw a pause symbol (two vertical bars)
+            bar_width = 15
+            bar_height = 30
+            bar_spacing = 10
+
+            # Create a semi-transparent background for better visibility
+            symbol_width = bar_width * 2 + bar_spacing
+            symbol_height = bar_height
+            bg_surface = Surface((symbol_width + 20, symbol_height + 20), pygame.SRCALPHA)
+            pygame.draw.rect(bg_surface, (0, 0, 0, 180), bg_surface.get_rect())
+            self.matris.surface.blit(bg_surface, bg_surface.get_rect(center=(game_area_width // 2, game_area_height // 2)))
+
+            # Draw the two bars of the pause symbol
+            center_x = game_area_width // 2
+            center_y = game_area_height // 2
+
+            bar_color = (255, 255, 255)
+            left_bar_rect = Rect(center_x - bar_spacing//2 - bar_width, center_y - bar_height//2, bar_width, bar_height)
+            right_bar_rect = Rect(center_x + bar_spacing//2, center_y - bar_height//2, bar_width, bar_height)
+
+            pygame.draw.rect(self.matris.surface, bar_color, left_bar_rect)
+            pygame.draw.rect(self.matris.surface, bar_color, right_bar_rect)
 
         pygame.display.flip()
 
@@ -496,9 +527,9 @@ class Game(object):
         linessurf = renderpair("Lines", self.matris.lines)
         combosurf = renderpair("Combo", "x{}".format(self.matris.combo))
 
-        height = 20 + (levelsurf.get_rect().height + 
+        height = 20 + (levelsurf.get_rect().height +
                        scoresurf.get_rect().height +
-                       linessurf.get_rect().height + 
+                       linessurf.get_rect().height +
                        combosurf.get_rect().height )
 
         area = Surface((width, height))
@@ -531,7 +562,7 @@ class Menu(object):
     running = True
     def main(self, screen):
         clock = pygame.time.Clock()
-        
+
         # Create main menu
         menu = kezmenu.KezMenu(
             ['Play!', lambda: self.start_game(screen)],
@@ -561,7 +592,7 @@ class Menu(object):
 
             timepassed = clock.tick(30) / 1000.
 
-            if timepassed > 1: # A game has most likely been played 
+            if timepassed > 1: # A game has most likely been played
                 highscoresurf = self.construct_highscoresurf()
 
             screen.blit(nightmare, (0,0))
@@ -582,48 +613,48 @@ class Menu(object):
     def show_options(self, screen):
         """Show the options menu with custom UI elements"""
         global sound_manager
-        
+
         # Play select sound
         try:
             select_sound = get_sound("select.wav")
             sound_manager.play_sound(select_sound)
         except:
             pass  # If sound fails, continue anyway
-            
+
         clock = pygame.time.Clock()
         nightmare = construct_nightmare(screen.get_size())
-        
+
         # Font setup
         title_font = pygame.font.Font(None, 70)
         option_font = pygame.font.Font(None, 50)
-        
+
         # UI element positions
         title_y = 100
         mute_y = 200
         volume_y = 300
         back_y = 400
-        
+
         # Slider properties
         slider_x = WIDTH // 2 - 100
         slider_width = 200
         slider_height = 20
         slider_knob_radius = 10
-        
+
         # Checkbox properties
         checkbox_size = 30
         checkbox_x = WIDTH // 2 - 100
         checkbox_y = mute_y - checkbox_size // 2
-        
+
         # Button properties
         button_width = 200
         button_height = 50
-        
+
         # Mouse state
         mouse_pressed = False
-        
+
         while True:
             events = pygame.event.get()
-            
+
             # Handle events
             for event in events:
                 if event.type == pygame.QUIT:
@@ -637,10 +668,10 @@ class Menu(object):
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:  # Left mouse button
                         mouse_pressed = False
-            
+
             # Get mouse position
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            
+
             # Handle mute/unmute checkbox
             checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
             if mouse_pressed and checkbox_rect.collidepoint(mouse_x, mouse_y):
@@ -652,7 +683,7 @@ class Menu(object):
                 except:
                     pass
                 mouse_pressed = False  # Prevent continuous toggling
-            
+
             # Handle volume slider
             slider_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, slider_width, slider_height)
             if mouse_pressed and slider_rect.collidepoint(mouse_x, mouse_y):
@@ -662,7 +693,7 @@ class Menu(object):
                 sound_manager.sound_volume = new_volume
                 if not sound_manager.sound_muted:
                     pygame.mixer.music.set_volume(new_volume)
-            
+
             # Handle back button
             back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, back_y - button_height // 2, button_width, button_height)
             if (mouse_pressed and back_button_rect.collidepoint(mouse_x, mouse_y)) or \
@@ -674,60 +705,60 @@ class Menu(object):
                 except:
                     pass
                 return  # Return to main menu
-            
+
             # Draw background
             screen.blit(nightmare, (0, 0))
-            
+
             # Draw title
             title = title_font.render("OPTIONS", True, (255, 255, 255))
             screen.blit(title, title.get_rect(centerx=WIDTH // 2, top=title_y))
-            
+
             # Draw mute/unmute checkbox
             pygame.draw.rect(screen, (255, 255, 255), checkbox_rect, 2)
             if sound_manager.sound_muted:
                 # Draw checkmark
-                pygame.draw.line(screen, (255, 255, 255), 
+                pygame.draw.line(screen, (255, 255, 255),
                                 (checkbox_x + 5, checkbox_y + 15),
                                 (checkbox_x + 12, checkbox_y + 22), 3)
                 pygame.draw.line(screen, (255, 255, 255),
                                 (checkbox_x + 12, checkbox_y + 22),
                                 (checkbox_x + 25, checkbox_y + 8), 3)
-            
+
             # Draw mute label
             mute_text = option_font.render("Mute Sound", True, (255, 255, 255))
             screen.blit(mute_text, (checkbox_x + checkbox_size + 10, mute_y - mute_text.get_height() // 2))
-            
+
             # Draw volume label
             volume_label = option_font.render("Volume", True, (255, 255, 255))
             screen.blit(volume_label, volume_label.get_rect(centerx=WIDTH // 2, centery=volume_y - 40))
-            
+
             # Draw volume slider
             pygame.draw.rect(screen, (100, 100, 100), slider_rect)
             pygame.draw.rect(screen, (255, 255, 255), slider_rect, 2)
-            
+
             # Draw slider fill
             fill_width = int(slider_width * sound_manager.sound_volume)
             if fill_width > 0:
                 fill_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, fill_width, slider_height)
                 pygame.draw.rect(screen, (40, 200, 40), fill_rect)
-            
+
             # Draw slider knob
             knob_x = slider_x + int(slider_width * sound_manager.sound_volume)
             knob_y = volume_y
             pygame.draw.circle(screen, (255, 255, 255), (knob_x, knob_y), slider_knob_radius)
             pygame.draw.circle(screen, (40, 200, 40), (knob_x, knob_y), slider_knob_radius - 2)
-            
+
             # Draw volume percentage
             volume_text = option_font.render(f"{int(sound_manager.sound_volume * 100)}%", True, (255, 255, 255))
             screen.blit(volume_text, volume_text.get_rect(centerx=WIDTH // 2, centery=volume_y + 40))
-            
+
             # Draw back button
             back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
             pygame.draw.rect(screen, back_color, back_button_rect, border_radius=10)
             pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
             back_text = option_font.render("BACK", True, (255, 255, 255))
             screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
-            
+
             pygame.display.flip()
             clock.tick(30)
 
@@ -738,7 +769,7 @@ class Menu(object):
             pygame.mixer.music.set_volume(0.0)
         else:
             pygame.mixer.music.set_volume(self.sound_volume)
-            
+
         # Play confirmation sound if unmuting
         if not self.sound_muted:
             try:
@@ -752,7 +783,7 @@ class Menu(object):
         self.sound_volume = max(0.0, min(1.0, self.sound_volume + delta))
         if not self.sound_muted:
             pygame.mixer.music.set_volume(self.sound_volume)
-        
+
         # Play confirmation sound
         try:
             select_sound = get_sound("select.wav")
@@ -770,38 +801,38 @@ class Menu(object):
     def show_high_scores(self, screen):
         """Show the high scores screen"""
         global sound_manager
-        
+
         # Play select sound
         try:
             select_sound = get_sound("select.wav")
             sound_manager.play_sound(select_sound)
         except:
             pass  # If sound fails, continue anyway
-            
+
         clock = pygame.time.Clock()
-        
+
         # Load high scores
         from .scores import load_high_scores
         highscores = load_high_scores(5)  # Load top 5 scores
-        
+
         # Fonts
         font_large = pygame.font.Font(None, 70)
         font_medium = pygame.font.Font(None, 50)
         font_small = pygame.font.Font(None, 40)
-        
+
         # Title
         title = font_large.render("HIGH SCORES", True, (255, 255, 255))
-        
+
         # Back button
         button_width = 200
         button_height = 50
         back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, HEIGHT - 100, button_width, button_height)
-        
+
         nightmare = construct_nightmare(screen.get_size())
-        
+
         while True:
             events = pygame.event.get()
-            
+
             # Handle events
             for event in events:
                 if event.type == pygame.QUIT:
@@ -825,13 +856,13 @@ class Menu(object):
                             except:
                                 pass
                             return  # Return to main menu
-            
+
             # Draw background
             screen.blit(nightmare, (0, 0))
-            
+
             # Draw title
             screen.blit(title, title.get_rect(centerx=WIDTH/2, top=50))
-            
+
             # Draw high scores
             if highscores:
                 for i, score in enumerate(highscores):
@@ -840,11 +871,11 @@ class Menu(object):
             else:
                 no_scores_text = font_medium.render("No scores yet!", True, (255, 255, 255))
                 screen.blit(no_scores_text, no_scores_text.get_rect(centerx=WIDTH/2, top=150))
-            
+
             # Draw instruction
             instruction = font_small.render("Press ESC or click BACK to return", True, (200, 200, 200))
             screen.blit(instruction, instruction.get_rect(centerx=WIDTH/2, top=HEIGHT - 150))
-            
+
             # Draw back button
             mouse_x, mouse_y = pygame.mouse.get_pos()
             back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
@@ -852,7 +883,7 @@ class Menu(object):
             pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
             back_text = font_small.render("BACK", True, (255, 255, 255))
             screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
-            
+
             pygame.display.flip()
             clock.tick(30)
 
@@ -892,7 +923,7 @@ class SoundManager:
     def __init__(self):
         self.sound_muted = False
         self.sound_volume = 0.5  # Volume level (0.0 to 1.0)
-        
+
     def toggle_sound(self):
         """Toggle sound mute/unmute"""
         self.sound_muted = not self.sound_muted
@@ -900,13 +931,13 @@ class SoundManager:
             pygame.mixer.music.set_volume(0.0)
         else:
             pygame.mixer.music.set_volume(self.sound_volume)
-            
+
     def adjust_volume(self, delta):
         """Adjust sound volume"""
         self.sound_volume = max(0.0, min(1.0, self.sound_volume + delta))
         if not self.sound_muted:
             pygame.mixer.music.set_volume(self.sound_volume)
-            
+
     def play_sound(self, sound):
         """Play a sound if sound is not muted"""
         if not self.sound_muted:
@@ -918,16 +949,16 @@ class SoundManager:
 
 def main():
     global sound_manager
-    
+
     pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
 
     # Initialize mixer for sound
     pygame.mixer.init()
-    
+
     # Initialize sound manager
     sound_manager = SoundManager()
-    
+
     # Load and play background music
     try:
         background_music = os.path.join(os.path.dirname(__file__), "resources", "sounds", "background.wav")
