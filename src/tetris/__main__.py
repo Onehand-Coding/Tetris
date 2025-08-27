@@ -970,7 +970,7 @@ def main():
         pass
 
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("MaTris")
+    pygame.display.set_caption("TeTris")
     Menu().main(screen)
 
 if __name__ == '__main__':
