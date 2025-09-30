@@ -14,6 +14,12 @@ A classic Tetris game implementation in Python using Pygame.
 - Full sound system with background music and sound effects
 - Menu system with keyboard and mouse controls
 
+## Visuals
+
+![Tetris Game Screenshot 1](./images/Screenshot_2025-09-30_09-28-25.png)
+
+![Tetris Menu Screenshot](./images/Screenshot_2025-09-30_09-30-08.png)
+
 ## Installation
 
 Make sure you have Python 3.11+ installed, then:
