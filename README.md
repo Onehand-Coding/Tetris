@@ -1,5 +1,7 @@
 # Tetris
 
+[![CI](https://github.com/Onehand-Coding/Tetris/actions/workflows/ci.yml/badge.svg)](https://github.com/Onehand-Coding/Tetris/actions/workflows/ci.yml)
+
 A classic Tetris game implementation in Python using Pygame.
 
 ## Features
@@ -80,28 +82,33 @@ The game includes a full sound system with:
   - Tetris (4 lines cleared)
 - Sound controls available in the options menu
 
+## High Scores and Data
+
+High scores are stored outside the package:
+
+- Default: `~/.local/share/tetris/highscores.txt`
+- Override: `TETRIS_DATA_DIR=/path/to/data`
+
+The directory is created on the first score write. No score file is written
+inside the installed package.
+
 ## Development
 
 This project uses modern Python tooling:
 
 - **uv** for dependency management
-- **Hatch** for building and publishing
-- **Ruff** for linting
-- **Black** for code formatting
+- **Ruff** for linting and formatting
+- **pytest** for tests
 
 ```bash
-# Install development dependencies
-uv sync --dev
-
-# Run linting
-hatch run lint:all
-
-# Format code
-hatch run lint:fmt
-
-# Run tests (when available)
-hatch run test
+uv sync --extra dev
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
 ```
+
+Tests use the dummy SDL driver, so no window is required. CI runs the same
+commands plus a wheel build and a resource check.
 
 ## License
 
