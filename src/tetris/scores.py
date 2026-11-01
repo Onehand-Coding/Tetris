@@ -27,7 +27,7 @@ def load_scores(score_file: Path | None = None) -> list[int]:
                 (int(line.strip()) for line in file if line.strip().isdigit()),
                 reverse=True,
             )
-    except OSError:
+    except (OSError, UnicodeError):
         return []
 
 

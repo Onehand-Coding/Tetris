@@ -30,6 +30,14 @@ def test_invalid_lines_are_ignored(tmp_path):
     assert scores.load_high_scores(score_file=path) == [100, 50]
 
 
+def test_invalid_utf8_returns_empty(tmp_path):
+    path = tmp_path / "scores.txt"
+    path.write_bytes(b"\xff\xfe100\n")
+
+    assert scores.load_score(path) == 0
+    assert scores.load_high_scores(score_file=path) == []
+
+
 def test_write_creates_parent_directories(tmp_path):
     path = tmp_path / "nested" / "scores.txt"
     scores.write_score(10, path)

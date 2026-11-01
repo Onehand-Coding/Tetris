@@ -875,5 +875,17 @@ Deviations made during execution:
 - A stale package-local `src/tetris/.highscores` file was deleted.
 - The unused Hatch lint environment (Black and mypy) was removed; CI uses Ruff
   and pytest.
-- The suite has 24 tests.
+- The suite has 33 tests.
+
+Post-review fixes:
+
+- Added adjacent, non-adjacent, and four-line row-shift assertions.
+- `load_scores` also catches `UnicodeError`, so malformed score files return 0
+  instead of crashing startup.
+- `gameover` ignores `OSError` from score writes.
+- Added blocked-movement, blocked-rotation, `lock_tetromino` scoring, and
+  `gameover` persistence tests.
+- Removed the unused `pytest-mock` dependency.
+- Restored `runTests`, re-exported `VALID_EFFECTS`, and fixed the legacy
+  `kwargs.has_key` call in the vendored menu effects.
 

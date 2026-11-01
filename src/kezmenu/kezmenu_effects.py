@@ -145,9 +145,9 @@ class KezMenuEffectAble:
         and padding (a value that repr the number of pixel to be added above and below the focused line).
         """
         self._effects[name] = kwargs
-        if not kwargs.has_key("enlarge_time"):
+        if "enlarge_time" not in kwargs:
             kwargs["enlarge_time"] = 0.5
-        if not kwargs.has_key("padding"):
+        if "padding" not in kwargs:
             kwargs["padding"] = 10
         kwargs["padding_pps"] = (
             kwargs["padding"] / kwargs["enlarge_time"]

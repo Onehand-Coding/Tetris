@@ -253,7 +253,10 @@ class Matris:
         is responsible for checking if it's game over.
         """
 
-        write_score(self.score)
+        try:
+            write_score(self.score)
+        except OSError:
+            pass
 
         if full_exit:
             exit()

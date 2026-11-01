@@ -36,6 +36,47 @@ def test_remove_multiple_lines():
     assert lines == 2
 
 
+def test_remove_adjacent_lines_shifts_rows():
+    matrix = blank_matrix()
+    for y in (20, 21):
+        for x in range(WIDTH):
+            matrix[(y, x)] = "block"
+    matrix[(19, 0)] = "marker"
+
+    result, lines = remove_full_lines(matrix)
+
+    assert lines == 2
+    assert result[(21, 0)] == "marker"
+    assert all(result[(20, x)] is None for x in range(WIDTH))
+
+
+def test_remove_non_adjacent_lines_shifts_rows():
+    matrix = blank_matrix()
+    for y in (18, 21):
+        for x in range(WIDTH):
+            matrix[(y, x)] = "block"
+    matrix[(17, 0)] = "upper"
+    matrix[(19, 0)] = "lower"
+
+    result, lines = remove_full_lines(matrix)
+
+    assert lines == 2
+    assert result[(20, 0)] == "lower"
+    assert result[(19, 0)] == "upper"
+
+
+def test_remove_four_lines():
+    matrix = blank_matrix()
+    for y in (18, 19, 20, 21):
+        for x in range(WIDTH):
+            matrix[(y, x)] = "block"
+
+    result, lines = remove_full_lines(matrix)
+
+    assert lines == 4
+    assert all(result[(y, x)] is None for y in (18, 19, 20, 21) for x in range(WIDTH))
+
+
 def test_partial_rows_are_not_cleared():
     matrix = blank_matrix()
     for x in range(WIDTH - 1):

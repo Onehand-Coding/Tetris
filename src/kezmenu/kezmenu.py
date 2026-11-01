@@ -10,6 +10,7 @@ import warnings
 
 import pygame
 
+from .kezmenu_effects import VALID_EFFECTS as VALID_EFFECTS
 from .kezmenu_effects import KezMenuEffectAble
 
 __author__ = "Keul - lucafbb AT gmail.com"
@@ -190,4 +191,4 @@ class KezMenu(KezMenuEffectAble):
 
 
 def runTests():
-    pass
+    import tests  # noqa: F401
