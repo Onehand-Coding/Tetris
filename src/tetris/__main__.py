@@ -1,17 +1,20 @@
 #!/usr/bin/env python
+import os
+import random
+
 import pygame
 from pygame import Rect, Surface
-import random
-import os
+
 import kezmenu
 
-from .tetrominoes import list_of_tetrominoes
-from .tetrominoes import rotate
-
+from .game import remove_full_lines, score_for_lines, should_level_up
 from .scores import load_score, write_score
+from .tetrominoes import list_of_tetrominoes, rotate
+
 
 class GameOver(Exception):
     """Exception used for its control flow properties"""
+
 
 # Global sound manager
 sound_manager = None
@@ -19,12 +22,15 @@ sound_manager = None
 
 def get_sound(filename):
     try:
-        sound = pygame.mixer.Sound(os.path.join(os.path.dirname(__file__), "resources", "sounds", filename))
+        sound = pygame.mixer.Sound(
+            os.path.join(os.path.dirname(__file__), "resources", "sounds", filename)
+        )
+
         # Wrap the sound with a play method that uses the sound manager
         class ManagedSound:
             def __init__(self, sound):
                 self._sound = sound
-                
+
             def play(self):
                 global sound_manager
                 if sound_manager:
@@ -33,16 +39,18 @@ def get_sound(filename):
                     # Fallback if sound manager not initialized
                     try:
                         self._sound.play()
-                    except:
+                    except Exception:
                         pass
-                        
+
         return ManagedSound(sound)
     except (pygame.error, FileNotFoundError):
         # Return a dummy sound object that doesn't crash when play() is called
         class DummySound:
             def play(self):
                 pass
+
         return DummySound()
+
 
 BGCOLOR = (15, 15, 20)
 BORDERCOLOR = (140, 140, 140)
@@ -57,23 +65,29 @@ MATRIX_HEIGHT = 22
 
 LEFT_MARGIN = 340
 
-WIDTH = MATRIX_WIDTH*BLOCKSIZE + BORDERWIDTH*2 + MATRIS_OFFSET*2 + LEFT_MARGIN
-HEIGHT = (MATRIX_HEIGHT-2)*BLOCKSIZE + BORDERWIDTH*2 + MATRIS_OFFSET*2
+WIDTH = MATRIX_WIDTH * BLOCKSIZE + BORDERWIDTH * 2 + MATRIS_OFFSET * 2 + LEFT_MARGIN
+HEIGHT = (MATRIX_HEIGHT - 2) * BLOCKSIZE + BORDERWIDTH * 2 + MATRIS_OFFSET * 2
 
-TRICKY_CENTERX = WIDTH-(WIDTH-(MATRIS_OFFSET+BLOCKSIZE*MATRIX_WIDTH+BORDERWIDTH*2))/2
+TRICKY_CENTERX = (
+    WIDTH - (WIDTH - (MATRIS_OFFSET + BLOCKSIZE * MATRIX_WIDTH + BORDERWIDTH * 2)) / 2
+)
 
 VISIBLE_MATRIX_HEIGHT = MATRIX_HEIGHT - 2
 
 
-class Matris(object):
+class Matris:
     def __init__(self, screen):
-        self.surface = screen.subsurface(Rect((MATRIS_OFFSET+BORDERWIDTH, MATRIS_OFFSET+BORDERWIDTH),
-                                              (MATRIX_WIDTH * BLOCKSIZE, (MATRIX_HEIGHT-2) * BLOCKSIZE)))
+        self.surface = screen.subsurface(
+            Rect(
+                (MATRIS_OFFSET + BORDERWIDTH, MATRIS_OFFSET + BORDERWIDTH),
+                (MATRIX_WIDTH * BLOCKSIZE, (MATRIX_HEIGHT - 2) * BLOCKSIZE),
+            )
+        )
 
         self.matrix = dict()
         for y in range(MATRIX_HEIGHT):
             for x in range(MATRIX_WIDTH):
-                self.matrix[(y,x)] = None
+                self.matrix[(y, x)] = None
         """
         `self.matrix` is the current state of the tetris board, that is, it records which squares are
         currently occupied. It does not include the falling tetromino. The information relating to the
@@ -85,18 +99,18 @@ class Matris(object):
         self.set_tetrominoes()
         self.tetromino_rotation = 0
         self.downwards_timer = 0
-        self.base_downwards_speed = 0.4 # Move down every 400 ms
+        self.base_downwards_speed = 0.4  # Move down every 400 ms
 
-        self.movement_keys = {'left': 0, 'right': 0}
+        self.movement_keys = {"left": 0, "right": 0}
         self.movement_keys_speed = 0.05
-        self.movement_keys_timer = (-self.movement_keys_speed)*2
+        self.movement_keys_timer = (-self.movement_keys_speed) * 2
 
         self.level = 1
         self.score = 0
         self.lines = 0
 
-        self.combo = 1 # Combo will increase when you clear lines with several tetrominos in a row
-        
+        self.combo = 1  # Combo will increase when you clear lines with several tetrominos in a row
+
         self.paused = False
         self.pause_timer = 0  # Timer for how long the pause text has been displayed
 
@@ -106,7 +120,7 @@ class Matris(object):
         # Track if a hard drop occurred for sound effects
         self.hard_drop_occurred = False
 
-        self.levelup_sound  = get_sound("levelup.wav")
+        self.levelup_sound = get_sound("levelup.wav")
         self.gameover_sound = get_sound("gameover.wav")
         self.linescleared_sound = get_sound("linecleared.wav")
         self.highscorebeaten_sound = get_sound("highscorebeaten.wav")
@@ -118,36 +132,38 @@ class Matris(object):
         self.start_sound = get_sound("start.wav")
         self.tetris_sound = get_sound("tetris.wav")
 
-
     def set_tetrominoes(self):
         self.current_tetromino = self.next_tetromino
         self.next_tetromino = random.choice(list_of_tetrominoes)
         self.surface_of_next_tetromino = self.construct_surface_of_next_tetromino()
-        self.tetromino_position = (0,4) if len(self.current_tetromino.shape) == 2 else (0, 3)
+        self.tetromino_position = (
+            (0, 4) if len(self.current_tetromino.shape) == 2 else (0, 3)
+        )
         self.tetromino_rotation = 0
         self.tetromino_block = self.block(self.current_tetromino.color)
         self.shadow_block = self.block(self.current_tetromino.color, shadow=True)
 
-    
     def hard_drop(self):
         amount = 0
-        while self.request_movement('down'):
+        while self.request_movement("down"):
             amount += 1
-        self.score += 10*amount
+        self.score += 10 * amount
         self.drop_sound.play()
         self.hard_drop_occurred = True
 
         self.lock_tetromino()
 
-
     def update(self, timepassed):
         self.needs_redraw = False
-        
-        pressed = lambda key: event.type == pygame.KEYDOWN and event.key == key
-        unpressed = lambda key: event.type == pygame.KEYUP and event.key == key
+
+        def pressed(key):
+            return event.type == pygame.KEYDOWN and event.key == key
+
+        def unpressed(key):
+            return event.type == pygame.KEYUP and event.key == key
 
         events = pygame.event.get()
-        
+
         for event in events:
             if pressed(pygame.K_p):
                 self.needs_redraw = True
@@ -166,33 +182,41 @@ class Matris(object):
             # Always return True to trigger redraw and show/hide pause symbol
             return True
 
-        for event in events:
+        for event in events:  # noqa: B007
             if pressed(pygame.K_SPACE):
                 self.hard_drop()
             elif pressed(pygame.K_UP) or pressed(pygame.K_w):
                 self.request_rotation()
 
             elif pressed(pygame.K_LEFT) or pressed(pygame.K_a):
-                self.request_movement('left')
-                self.movement_keys['left'] = 1
+                self.request_movement("left")
+                self.movement_keys["left"] = 1
             elif pressed(pygame.K_RIGHT) or pressed(pygame.K_d):
-                self.request_movement('right')
-                self.movement_keys['right'] = 1
+                self.request_movement("right")
+                self.movement_keys["right"] = 1
 
             elif unpressed(pygame.K_LEFT) or unpressed(pygame.K_a):
-                self.movement_keys['left'] = 0
-                self.movement_keys_timer = (-self.movement_keys_speed)*2
+                self.movement_keys["left"] = 0
+                self.movement_keys_timer = (-self.movement_keys_speed) * 2
             elif unpressed(pygame.K_RIGHT) or unpressed(pygame.K_d):
-                self.movement_keys['right'] = 0
-                self.movement_keys_timer = (-self.movement_keys_speed)*2
+                self.movement_keys["right"] = 0
+                self.movement_keys_timer = (-self.movement_keys_speed) * 2
 
-        self.downwards_speed = self.base_downwards_speed ** (1 + self.level/10.)
+        self.downwards_speed = self.base_downwards_speed ** (1 + self.level / 10.0)
 
         self.downwards_timer += timepassed
-        downwards_speed = self.downwards_speed*0.10 if any([pygame.key.get_pressed()[pygame.K_DOWN],
-                                                            pygame.key.get_pressed()[pygame.K_s]]) else self.downwards_speed
+        downwards_speed = (
+            self.downwards_speed * 0.10
+            if any(
+                [
+                    pygame.key.get_pressed()[pygame.K_DOWN],
+                    pygame.key.get_pressed()[pygame.K_s],
+                ]
+            )
+            else self.downwards_speed
+        )
         if self.downwards_timer > downwards_speed:
-            if not self.request_movement('down'):
+            if not self.request_movement("down"):
                 self.lock_tetromino()
 
             self.downwards_timer %= downwards_speed
@@ -200,7 +224,7 @@ class Matris(object):
         if any(self.movement_keys.values()):
             self.movement_keys_timer += timepassed
         if self.movement_keys_timer > self.movement_keys_speed:
-            self.request_movement('right' if self.movement_keys['right'] else 'left')
+            self.request_movement("right" if self.movement_keys["right"] else "left")
             self.movement_keys_timer %= self.movement_keys_speed
 
         return self.needs_redraw
@@ -210,16 +234,17 @@ class Matris(object):
 
         for y in range(MATRIX_HEIGHT):
             for x in range(MATRIX_WIDTH):
-
                 #                                       I hide the 2 first rows by drawing them outside of the surface
-                block_location = Rect(x*BLOCKSIZE, (y*BLOCKSIZE - 2*BLOCKSIZE), BLOCKSIZE, BLOCKSIZE)
-                if with_tetromino[(y,x)] is None:
+                block_location = Rect(
+                    x * BLOCKSIZE, (y * BLOCKSIZE - 2 * BLOCKSIZE), BLOCKSIZE, BLOCKSIZE
+                )
+                if with_tetromino[(y, x)] is None:
                     self.surface.fill(BGCOLOR, block_location)
                 else:
-                    if with_tetromino[(y,x)][0] == 'shadow':
+                    if with_tetromino[(y, x)][0] == "shadow":
                         self.surface.fill(BGCOLOR, block_location)
 
-                    self.surface.blit(with_tetromino[(y,x)][1], block_location)
+                    self.surface.blit(with_tetromino[(y, x)][1], block_location)
 
     def gameover(self, full_exit=False):
         """
@@ -240,19 +265,21 @@ class Matris(object):
         while self.blend(position=(posY, posX)):
             posY += 1
 
-        position = (posY-1, posX)
+        position = (posY - 1, posX)
 
         return self.blend(position=position, shadow=True)
 
     def fits_in_matrix(self, shape, position):
         posY, posX = position
-        for x in range(posX, posX+len(shape)):
-            for y in range(posY, posY+len(shape)):
-                if self.matrix.get((y, x), False) is False and shape[y-posY][x-posX]: # outside matrix
+        for x in range(posX, posX + len(shape)):
+            for y in range(posY, posY + len(shape)):
+                if (
+                    self.matrix.get((y, x), False) is False
+                    and shape[y - posY][x - posX]
+                ):  # outside matrix
                     return False
 
         return position
-
 
     def request_rotation(self):
         rotation = (self.tetromino_rotation + 1) % 4
@@ -260,11 +287,13 @@ class Matris(object):
 
         y, x = self.tetromino_position
 
-        position = (self.fits_in_matrix(shape, (y, x)) or
-                    self.fits_in_matrix(shape, (y, x+1)) or
-                    self.fits_in_matrix(shape, (y, x-1)) or
-                    self.fits_in_matrix(shape, (y, x+2)) or
-                    self.fits_in_matrix(shape, (y, x-2)))
+        position = (
+            self.fits_in_matrix(shape, (y, x))
+            or self.fits_in_matrix(shape, (y, x + 1))
+            or self.fits_in_matrix(shape, (y, x - 1))
+            or self.fits_in_matrix(shape, (y, x + 2))
+            or self.fits_in_matrix(shape, (y, x - 2))
+        )
         # ^ That's how wall-kick is implemented
 
         if position and self.blend(shape, position):
@@ -278,23 +307,23 @@ class Matris(object):
 
     def request_movement(self, direction):
         posY, posX = self.tetromino_position
-        if direction == 'left' and self.blend(position=(posY, posX-1)):
-            self.tetromino_position = (posY, posX-1)
+        if direction == "left" and self.blend(position=(posY, posX - 1)):
+            self.tetromino_position = (posY, posX - 1)
             self.lateralmove_sound.play()
             self.needs_redraw = True
             return self.tetromino_position
-        elif direction == 'right' and self.blend(position=(posY, posX+1)):
-            self.tetromino_position = (posY, posX+1)
+        elif direction == "right" and self.blend(position=(posY, posX + 1)):
+            self.tetromino_position = (posY, posX + 1)
             self.lateralmove_sound.play()
             self.needs_redraw = True
             return self.tetromino_position
-        elif direction == 'up' and self.blend(position=(posY-1, posX)):
+        elif direction == "up" and self.blend(position=(posY - 1, posX)):
             self.needs_redraw = True
-            self.tetromino_position = (posY-1, posX)
+            self.tetromino_position = (posY - 1, posX)
             return self.tetromino_position
-        elif direction == 'down' and self.blend(position=(posY+1, posX)):
+        elif direction == "down" and self.blend(position=(posY + 1, posX)):
             self.needs_redraw = True
-            self.tetromino_position = (posY+1, posX)
+            self.tetromino_position = (posY + 1, posX)
             return self.tetromino_position
         else:
             return False
@@ -305,34 +334,46 @@ class Matris(object):
         return rotate(self.current_tetromino.shape, rotation)
 
     def block(self, color, shadow=False):
-        colors = {'blue':   (105, 105, 255),
-                  'yellow': (225, 242, 41),
-                  'pink':   (242, 41, 195),
-                  'green':  (22, 181, 64),
-                  'red':    (204, 22, 22),
-                  'orange': (245, 144, 12),
-                  'cyan':   (10, 255, 226)}
-
+        colors = {
+            "blue": (105, 105, 255),
+            "yellow": (225, 242, 41),
+            "pink": (242, 41, 195),
+            "green": (22, 181, 64),
+            "red": (204, 22, 22),
+            "orange": (245, 144, 12),
+            "cyan": (10, 255, 226),
+        }
 
         if shadow:
-            end = [90] # end is the alpha value
+            end = [90]  # end is the alpha value
         else:
-            end = [] # Adding this to the end will not change the array, thus no alpha value
+            end = []  # Adding this to the end will not change the array, thus no alpha value
 
         border = Surface((BLOCKSIZE, BLOCKSIZE), pygame.SRCALPHA, 32)
-        border.fill(list(map(lambda c: c*0.5, colors[color])) + end)
+        border.fill(list(map(lambda c: c * 0.5, colors[color])) + end)
 
         borderwidth = 2
 
-        box = Surface((BLOCKSIZE-borderwidth*2, BLOCKSIZE-borderwidth*2), pygame.SRCALPHA, 32)
+        box = Surface(
+            (BLOCKSIZE - borderwidth * 2, BLOCKSIZE - borderwidth * 2),
+            pygame.SRCALPHA,
+            32,
+        )
         boxarr = pygame.PixelArray(box)
         for x in range(len(boxarr)):
             for y in range(len(boxarr)):
-                boxarr[x][y] = tuple(list(map(lambda c: min(255, int(c*random.uniform(0.8, 1.2))), colors[color])) + end)
+                boxarr[x][y] = tuple(
+                    list(
+                        map(
+                            lambda c: min(255, int(c * random.uniform(0.8, 1.2))),
+                            colors[color],
+                        )
+                    )
+                    + end
+                )
 
-        del boxarr # deleting boxarr or else the box surface will be 'locked' or something like that and won't blit.
+        del boxarr  # deleting boxarr or else the box surface will be 'locked' or something like that and won't blit.
         border.blit(box, Rect(borderwidth, borderwidth, 0, 0))
-
 
         return border
 
@@ -359,14 +400,14 @@ class Matris(object):
             else:
                 self.linescleared_sound.play()
 
-            self.score += 100 * (lines_cleared**2) * self.combo
+            self.score += score_for_lines(lines_cleared, self.combo)
 
             if not self.played_highscorebeaten_sound and self.score > self.highscore:
                 if self.highscore != 0:
                     self.highscorebeaten_sound.play()
                 self.played_highscorebeaten_sound = True
 
-        if self.lines >= self.level*10:
+        if should_level_up(self.lines, self.level):
             self.levelup_sound.play()
             self.level += 1
 
@@ -388,23 +429,10 @@ class Matris(object):
         self.needs_redraw = True
 
     def remove_lines(self):
-        lines = []
-        for y in range(MATRIX_HEIGHT):
-            line = (y, [])
-            for x in range(MATRIX_WIDTH):
-                if self.matrix[(y,x)]:
-                    line[1].append(x)
-            if len(line[1]) == MATRIX_WIDTH:
-                lines.append(y)
-
-        for line in sorted(lines):
-            for x in range(MATRIX_WIDTH):
-                self.matrix[(line,x)] = None
-            for y in range(0, line+1)[::-1]:
-                for x in range(MATRIX_WIDTH):
-                    self.matrix[(y,x)] = self.matrix.get((y-1,x), None)
-
-        return len(lines)
+        self.matrix, lines_cleared = remove_full_lines(
+            self.matrix, MATRIX_WIDTH, MATRIX_HEIGHT
+        )
+        return lines_cleared
 
     def blend(self, shape=None, position=None, matrix=None, shadow=False):
         """
@@ -421,41 +449,63 @@ class Matris(object):
 
         copy = dict(self.matrix if matrix is None else matrix)
         posY, posX = position
-        for x in range(posX, posX+len(shape)):
-            for y in range(posY, posY+len(shape)):
-                if (copy.get((y, x), False) is False and shape[y-posY][x-posX] # shape is outside the matrix
-                    or # coordinate is occupied by something else which isn't a shadow
-                    copy.get((y,x)) and shape[y-posY][x-posX] and copy[(y,x)][0] != 'shadow'):
+        for x in range(posX, posX + len(shape)):
+            for y in range(posY, posY + len(shape)):
+                if (
+                    copy.get((y, x), False) is False
+                    and shape[y - posY][
+                        x - posX
+                    ]  # shape is outside the matrix  # coordinate is occupied by something else which isn't a shadow
+                    or copy.get((y, x))
+                    and shape[y - posY][x - posX]
+                    and copy[(y, x)][0] != "shadow"
+                ):
+                    return (
+                        False  # Blend failed; `shape` at `position` breaks the matrix
+                    )
 
-                    return False # Blend failed; `shape` at `position` breaks the matrix
-
-                elif shape[y-posY][x-posX]:
-                    copy[(y,x)] = ('shadow', self.shadow_block) if shadow else ('block', self.tetromino_block)
+                elif shape[y - posY][x - posX]:
+                    copy[(y, x)] = (
+                        ("shadow", self.shadow_block)
+                        if shadow
+                        else ("block", self.tetromino_block)
+                    )
 
         return copy
 
     def construct_surface_of_next_tetromino(self):
         shape = self.next_tetromino.shape
-        surf = Surface((len(shape)*BLOCKSIZE, len(shape)*BLOCKSIZE), pygame.SRCALPHA, 32)
+        surf = Surface(
+            (len(shape) * BLOCKSIZE, len(shape) * BLOCKSIZE), pygame.SRCALPHA, 32
+        )
 
         for y in range(len(shape)):
             for x in range(len(shape)):
                 if shape[y][x]:
-                    surf.blit(self.block(self.next_tetromino.color), (x*BLOCKSIZE, y*BLOCKSIZE))
+                    surf.blit(
+                        self.block(self.next_tetromino.color),
+                        (x * BLOCKSIZE, y * BLOCKSIZE),
+                    )
         return surf
 
-class Game(object):
+
+class Game:
     def main(self, screen):
         clock = pygame.time.Clock()
         self.screen = screen
 
         self.matris = Matris(screen)
 
-        screen.blit(construct_nightmare(screen.get_size()), (0,0))
+        screen.blit(construct_nightmare(screen.get_size()), (0, 0))
 
-        matris_border = Surface((MATRIX_WIDTH*BLOCKSIZE+BORDERWIDTH*2, VISIBLE_MATRIX_HEIGHT*BLOCKSIZE+BORDERWIDTH*2))
+        matris_border = Surface(
+            (
+                MATRIX_WIDTH * BLOCKSIZE + BORDERWIDTH * 2,
+                VISIBLE_MATRIX_HEIGHT * BLOCKSIZE + BORDERWIDTH * 2,
+            )
+        )
         matris_border.fill(BORDERCOLOR)
-        screen.blit(matris_border, (MATRIS_OFFSET,MATRIS_OFFSET))
+        screen.blit(matris_border, (MATRIS_OFFSET, MATRIS_OFFSET))
 
         self.redraw()
 
@@ -463,11 +513,10 @@ class Game(object):
             try:
                 timepassed = clock.tick(50)
                 # Always pass the actual timepassed to update, but the game logic only processes it when not paused
-                if self.matris.update(timepassed / 1000.):
+                if self.matris.update(timepassed / 1000.0):
                     self.redraw()
             except GameOver:
                 return
-
 
     def redraw(self):
         # Draw the next tetromino, info panel, and game surface
@@ -479,7 +528,7 @@ class Game(object):
         if self.matris.paused and self.matris.pause_timer < 2.0:  # Show for 2 seconds
             # Calculate the position within the game area (the subsurface)
             game_area_width = MATRIX_WIDTH * BLOCKSIZE
-            game_area_height = (MATRIX_HEIGHT-2) * BLOCKSIZE
+            game_area_height = (MATRIX_HEIGHT - 2) * BLOCKSIZE
 
             # Draw a pause symbol (two vertical bars)
             bar_width = 15
@@ -489,97 +538,151 @@ class Game(object):
             # Create a semi-transparent background for better visibility
             symbol_width = bar_width * 2 + bar_spacing
             symbol_height = bar_height
-            bg_surface = Surface((symbol_width + 20, symbol_height + 20), pygame.SRCALPHA)
+            bg_surface = Surface(
+                (symbol_width + 20, symbol_height + 20), pygame.SRCALPHA
+            )
             pygame.draw.rect(bg_surface, (0, 0, 0, 180), bg_surface.get_rect())
-            self.matris.surface.blit(bg_surface, bg_surface.get_rect(center=(game_area_width // 2, game_area_height // 2)))
+            self.matris.surface.blit(
+                bg_surface,
+                bg_surface.get_rect(
+                    center=(game_area_width // 2, game_area_height // 2)
+                ),
+            )
 
             # Draw the two bars of the pause symbol
             center_x = game_area_width // 2
             center_y = game_area_height // 2
 
             bar_color = (255, 255, 255)
-            left_bar_rect = Rect(center_x - bar_spacing//2 - bar_width, center_y - bar_height//2, bar_width, bar_height)
-            right_bar_rect = Rect(center_x + bar_spacing//2, center_y - bar_height//2, bar_width, bar_height)
+            left_bar_rect = Rect(
+                center_x - bar_spacing // 2 - bar_width,
+                center_y - bar_height // 2,
+                bar_width,
+                bar_height,
+            )
+            right_bar_rect = Rect(
+                center_x + bar_spacing // 2,
+                center_y - bar_height // 2,
+                bar_width,
+                bar_height,
+            )
 
             pygame.draw.rect(self.matris.surface, bar_color, left_bar_rect)
             pygame.draw.rect(self.matris.surface, bar_color, right_bar_rect)
 
         pygame.display.flip()
 
-
     def blit_info(self):
         textcolor = (255, 255, 255)
         font = pygame.font.Font(None, 30)
-        width = (WIDTH-(MATRIS_OFFSET+BLOCKSIZE*MATRIX_WIDTH+BORDERWIDTH*2)) - MATRIS_OFFSET*2
+        width = (
+            WIDTH - (MATRIS_OFFSET + BLOCKSIZE * MATRIX_WIDTH + BORDERWIDTH * 2)
+        ) - MATRIS_OFFSET * 2
 
         def renderpair(text, val):
             text = font.render(text, True, textcolor)
             val = font.render(str(val), True, textcolor)
 
-            surf = Surface((width, text.get_rect().height + BORDERWIDTH*2), pygame.SRCALPHA, 32)
+            surf = Surface(
+                (width, text.get_rect().height + BORDERWIDTH * 2), pygame.SRCALPHA, 32
+            )
 
-            surf.blit(text, text.get_rect(top=BORDERWIDTH+10, left=BORDERWIDTH+10))
-            surf.blit(val, val.get_rect(top=BORDERWIDTH+10, right=width-(BORDERWIDTH+10)))
+            surf.blit(text, text.get_rect(top=BORDERWIDTH + 10, left=BORDERWIDTH + 10))
+            surf.blit(
+                val,
+                val.get_rect(top=BORDERWIDTH + 10, right=width - (BORDERWIDTH + 10)),
+            )
             return surf
 
         scoresurf = renderpair("Score", self.matris.score)
         levelsurf = renderpair("Level", self.matris.level)
         linessurf = renderpair("Lines", self.matris.lines)
-        combosurf = renderpair("Combo", "x{}".format(self.matris.combo))
+        combosurf = renderpair("Combo", f"x{self.matris.combo}")
 
-        height = 20 + (levelsurf.get_rect().height +
-                       scoresurf.get_rect().height +
-                       linessurf.get_rect().height +
-                       combosurf.get_rect().height )
+        height = 20 + (
+            levelsurf.get_rect().height
+            + scoresurf.get_rect().height
+            + linessurf.get_rect().height
+            + combosurf.get_rect().height
+        )
 
         area = Surface((width, height))
         area.fill(BORDERCOLOR)
-        area.fill(BGCOLOR, Rect(BORDERWIDTH, BORDERWIDTH, width-BORDERWIDTH*2, height-BORDERWIDTH*2))
+        area.fill(
+            BGCOLOR,
+            Rect(
+                BORDERWIDTH,
+                BORDERWIDTH,
+                width - BORDERWIDTH * 2,
+                height - BORDERWIDTH * 2,
+            ),
+        )
 
-        area.blit(levelsurf, (0,0))
+        area.blit(levelsurf, (0, 0))
         area.blit(scoresurf, (0, levelsurf.get_rect().height))
-        area.blit(linessurf, (0, levelsurf.get_rect().height + scoresurf.get_rect().height))
-        area.blit(combosurf, (0, levelsurf.get_rect().height + scoresurf.get_rect().height + linessurf.get_rect().height))
+        area.blit(
+            linessurf, (0, levelsurf.get_rect().height + scoresurf.get_rect().height)
+        )
+        area.blit(
+            combosurf,
+            (
+                0,
+                levelsurf.get_rect().height
+                + scoresurf.get_rect().height
+                + linessurf.get_rect().height,
+            ),
+        )
 
-        self.screen.blit(area, area.get_rect(bottom=HEIGHT-MATRIS_OFFSET, centerx=TRICKY_CENTERX))
-
+        self.screen.blit(
+            area, area.get_rect(bottom=HEIGHT - MATRIS_OFFSET, centerx=TRICKY_CENTERX)
+        )
 
     def blit_next_tetromino(self, tetromino_surf):
-        area = Surface((BLOCKSIZE*5, BLOCKSIZE*5))
+        area = Surface((BLOCKSIZE * 5, BLOCKSIZE * 5))
         area.fill(BORDERCOLOR)
-        area.fill(BGCOLOR, Rect(BORDERWIDTH, BORDERWIDTH, BLOCKSIZE*5-BORDERWIDTH*2, BLOCKSIZE*5-BORDERWIDTH*2))
+        area.fill(
+            BGCOLOR,
+            Rect(
+                BORDERWIDTH,
+                BORDERWIDTH,
+                BLOCKSIZE * 5 - BORDERWIDTH * 2,
+                BLOCKSIZE * 5 - BORDERWIDTH * 2,
+            ),
+        )
 
         areasize = area.get_size()[0]
         tetromino_surf_size = tetromino_surf.get_size()[0]
         # ^^ I'm assuming width and height are the same
 
-        center = areasize/2 - tetromino_surf_size/2
+        center = areasize / 2 - tetromino_surf_size / 2
         area.blit(tetromino_surf, (center, center))
 
         self.screen.blit(area, area.get_rect(top=MATRIS_OFFSET, centerx=TRICKY_CENTERX))
 
-class Menu(object):
+
+class Menu:
     running = True
+
     def main(self, screen):
         clock = pygame.time.Clock()
 
         # Create main menu
         menu = kezmenu.KezMenu(
-            ['Play!', lambda: self.start_game(screen)],
-            ['Options', lambda: self.show_options(screen)],
-            ['High Scores', lambda: self.show_high_scores(screen)],
-            ['Quit', lambda: setattr(self, 'running', False)],
+            ["Play!", lambda: self.start_game(screen)],
+            ["Options", lambda: self.show_options(screen)],
+            ["High Scores", lambda: self.show_high_scores(screen)],
+            ["Quit", lambda: setattr(self, "running", False)],
         )
         menu.position = (50, 50)
         # Set a larger base font size
         menu.font = pygame.font.Font(None, 60)
-        menu.color = (255,255,255)
+        menu.color = (255, 255, 255)
         menu.focus_color = (40, 200, 40)
 
         nightmare = construct_nightmare(screen.get_size())
         highscoresurf = self.construct_highscoresurf()
 
-        timepassed = clock.tick(30) / 1000.
+        timepassed = clock.tick(30) / 1000.0
 
         while self.running:
             events = pygame.event.get()
@@ -590,13 +693,16 @@ class Menu(object):
 
             menu.update(events, timepassed)
 
-            timepassed = clock.tick(30) / 1000.
+            timepassed = clock.tick(30) / 1000.0
 
-            if timepassed > 1: # A game has most likely been played
+            if timepassed > 1:  # A game has most likely been played
                 highscoresurf = self.construct_highscoresurf()
 
-            screen.blit(nightmare, (0,0))
-            screen.blit(highscoresurf, highscoresurf.get_rect(right=WIDTH-50, bottom=HEIGHT-50))
+            screen.blit(nightmare, (0, 0))
+            screen.blit(
+                highscoresurf,
+                highscoresurf.get_rect(right=WIDTH - 50, bottom=HEIGHT - 50),
+            )
             menu.draw(screen)
             pygame.display.flip()
 
@@ -606,7 +712,7 @@ class Menu(object):
         try:
             start_sound = get_sound("start.wav")
             start_sound.play()
-        except:
+        except Exception:
             pass  # If sound fails, continue anyway
         Game().main(screen)
 
@@ -618,7 +724,7 @@ class Menu(object):
         try:
             select_sound = get_sound("select.wav")
             sound_manager.play_sound(select_sound)
-        except:
+        except Exception:
             pass  # If sound fails, continue anyway
 
         clock = pygame.time.Clock()
@@ -673,19 +779,23 @@ class Menu(object):
             mouse_x, mouse_y = pygame.mouse.get_pos()
 
             # Handle mute/unmute checkbox
-            checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
+            checkbox_rect = pygame.Rect(
+                checkbox_x, checkbox_y, checkbox_size, checkbox_size
+            )
             if mouse_pressed and checkbox_rect.collidepoint(mouse_x, mouse_y):
                 sound_manager.toggle_sound()
                 # Play sound effect for checkbox toggle
                 try:
                     select_sound = get_sound("select.wav")
                     sound_manager.play_sound(select_sound)
-                except:
+                except Exception:
                     pass
                 mouse_pressed = False  # Prevent continuous toggling
 
             # Handle volume slider
-            slider_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, slider_width, slider_height)
+            slider_rect = pygame.Rect(
+                slider_x, volume_y - slider_height // 2, slider_width, slider_height
+            )
             if mouse_pressed and slider_rect.collidepoint(mouse_x, mouse_y):
                 # Calculate new volume based on mouse position
                 relative_x = max(0, min(slider_width, mouse_x - slider_x))
@@ -695,14 +805,24 @@ class Menu(object):
                     pygame.mixer.music.set_volume(new_volume)
 
             # Handle back button
-            back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, back_y - button_height // 2, button_width, button_height)
-            if (mouse_pressed and back_button_rect.collidepoint(mouse_x, mouse_y)) or \
-               any(event.type == pygame.KEYDOWN and (event.key == pygame.K_RETURN or event.key == pygame.K_SPACE) for event in events):
+            back_button_rect = pygame.Rect(
+                WIDTH // 2 - button_width // 2,
+                back_y - button_height // 2,
+                button_width,
+                button_height,
+            )
+            if (
+                mouse_pressed and back_button_rect.collidepoint(mouse_x, mouse_y)
+            ) or any(
+                event.type == pygame.KEYDOWN
+                and (event.key == pygame.K_RETURN or event.key == pygame.K_SPACE)
+                for event in events
+            ):
                 # Play sound effect for back button
                 try:
                     select_sound = get_sound("select.wav")
                     sound_manager.play_sound(select_sound)
-                except:
+                except Exception:
                     pass
                 return  # Return to main menu
 
@@ -717,20 +837,34 @@ class Menu(object):
             pygame.draw.rect(screen, (255, 255, 255), checkbox_rect, 2)
             if sound_manager.sound_muted:
                 # Draw checkmark
-                pygame.draw.line(screen, (255, 255, 255),
-                                (checkbox_x + 5, checkbox_y + 15),
-                                (checkbox_x + 12, checkbox_y + 22), 3)
-                pygame.draw.line(screen, (255, 255, 255),
-                                (checkbox_x + 12, checkbox_y + 22),
-                                (checkbox_x + 25, checkbox_y + 8), 3)
+                pygame.draw.line(
+                    screen,
+                    (255, 255, 255),
+                    (checkbox_x + 5, checkbox_y + 15),
+                    (checkbox_x + 12, checkbox_y + 22),
+                    3,
+                )
+                pygame.draw.line(
+                    screen,
+                    (255, 255, 255),
+                    (checkbox_x + 12, checkbox_y + 22),
+                    (checkbox_x + 25, checkbox_y + 8),
+                    3,
+                )
 
             # Draw mute label
             mute_text = option_font.render("Mute Sound", True, (255, 255, 255))
-            screen.blit(mute_text, (checkbox_x + checkbox_size + 10, mute_y - mute_text.get_height() // 2))
+            screen.blit(
+                mute_text,
+                (checkbox_x + checkbox_size + 10, mute_y - mute_text.get_height() // 2),
+            )
 
             # Draw volume label
             volume_label = option_font.render("Volume", True, (255, 255, 255))
-            screen.blit(volume_label, volume_label.get_rect(centerx=WIDTH // 2, centery=volume_y - 40))
+            screen.blit(
+                volume_label,
+                volume_label.get_rect(centerx=WIDTH // 2, centery=volume_y - 40),
+            )
 
             # Draw volume slider
             pygame.draw.rect(screen, (100, 100, 100), slider_rect)
@@ -739,23 +873,40 @@ class Menu(object):
             # Draw slider fill
             fill_width = int(slider_width * sound_manager.sound_volume)
             if fill_width > 0:
-                fill_rect = pygame.Rect(slider_x, volume_y - slider_height // 2, fill_width, slider_height)
+                fill_rect = pygame.Rect(
+                    slider_x, volume_y - slider_height // 2, fill_width, slider_height
+                )
                 pygame.draw.rect(screen, (40, 200, 40), fill_rect)
 
             # Draw slider knob
             knob_x = slider_x + int(slider_width * sound_manager.sound_volume)
             knob_y = volume_y
-            pygame.draw.circle(screen, (255, 255, 255), (knob_x, knob_y), slider_knob_radius)
-            pygame.draw.circle(screen, (40, 200, 40), (knob_x, knob_y), slider_knob_radius - 2)
+            pygame.draw.circle(
+                screen, (255, 255, 255), (knob_x, knob_y), slider_knob_radius
+            )
+            pygame.draw.circle(
+                screen, (40, 200, 40), (knob_x, knob_y), slider_knob_radius - 2
+            )
 
             # Draw volume percentage
-            volume_text = option_font.render(f"{int(sound_manager.sound_volume * 100)}%", True, (255, 255, 255))
-            screen.blit(volume_text, volume_text.get_rect(centerx=WIDTH // 2, centery=volume_y + 40))
+            volume_text = option_font.render(
+                f"{int(sound_manager.sound_volume * 100)}%", True, (255, 255, 255)
+            )
+            screen.blit(
+                volume_text,
+                volume_text.get_rect(centerx=WIDTH // 2, centery=volume_y + 40),
+            )
 
             # Draw back button
-            back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
+            back_color = (
+                (40, 200, 40)
+                if back_button_rect.collidepoint(mouse_x, mouse_y)
+                else (100, 100, 100)
+            )
             pygame.draw.rect(screen, back_color, back_button_rect, border_radius=10)
-            pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
+            pygame.draw.rect(
+                screen, (255, 255, 255), back_button_rect, 2, border_radius=10
+            )
             back_text = option_font.render("BACK", True, (255, 255, 255))
             screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
 
@@ -775,7 +926,7 @@ class Menu(object):
             try:
                 select_sound = get_sound("select.wav")
                 select_sound.play()
-            except:
+            except Exception:
                 pass
 
     def adjust_volume(self, delta):
@@ -789,14 +940,14 @@ class Menu(object):
             select_sound = get_sound("select.wav")
             if not self.sound_muted:
                 select_sound.play()
-        except:
+        except Exception:
             pass
 
     def construct_highscoresurf(self):
         font = pygame.font.Font(None, 50)
         highscore = load_score()
-        text = "Highscore: {}".format(highscore)
-        return font.render(text, True, (255,255,255))
+        text = f"Highscore: {highscore}"
+        return font.render(text, True, (255, 255, 255))
 
     def show_high_scores(self, screen):
         """Show the high scores screen"""
@@ -806,13 +957,14 @@ class Menu(object):
         try:
             select_sound = get_sound("select.wav")
             sound_manager.play_sound(select_sound)
-        except:
+        except Exception:
             pass  # If sound fails, continue anyway
 
         clock = pygame.time.Clock()
 
         # Load high scores
         from .scores import load_high_scores
+
         highscores = load_high_scores(5)  # Load top 5 scores
 
         # Fonts
@@ -826,7 +978,9 @@ class Menu(object):
         # Back button
         button_width = 200
         button_height = 50
-        back_button_rect = pygame.Rect(WIDTH // 2 - button_width // 2, HEIGHT - 100, button_width, button_height)
+        back_button_rect = pygame.Rect(
+            WIDTH // 2 - button_width // 2, HEIGHT - 100, button_width, button_height
+        )
 
         nightmare = construct_nightmare(screen.get_size())
 
@@ -843,7 +997,7 @@ class Menu(object):
                         try:
                             select_sound = get_sound("select.wav")
                             sound_manager.play_sound(select_sound)
-                        except:
+                        except Exception:
                             pass
                         return  # Return to main menu
                 elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -853,7 +1007,7 @@ class Menu(object):
                             try:
                                 select_sound = get_sound("select.wav")
                                 sound_manager.play_sound(select_sound)
-                            except:
+                            except Exception:
                                 pass
                             return  # Return to main menu
 
@@ -861,26 +1015,45 @@ class Menu(object):
             screen.blit(nightmare, (0, 0))
 
             # Draw title
-            screen.blit(title, title.get_rect(centerx=WIDTH/2, top=50))
+            screen.blit(title, title.get_rect(centerx=WIDTH / 2, top=50))
 
             # Draw high scores
             if highscores:
                 for i, score in enumerate(highscores):
-                    score_text = font_medium.render(f"{i+1}. {score}", True, (255, 255, 255))
-                    screen.blit(score_text, score_text.get_rect(centerx=WIDTH/2, top=150 + i*60))
+                    score_text = font_medium.render(
+                        f"{i + 1}. {score}", True, (255, 255, 255)
+                    )
+                    screen.blit(
+                        score_text,
+                        score_text.get_rect(centerx=WIDTH / 2, top=150 + i * 60),
+                    )
             else:
-                no_scores_text = font_medium.render("No scores yet!", True, (255, 255, 255))
-                screen.blit(no_scores_text, no_scores_text.get_rect(centerx=WIDTH/2, top=150))
+                no_scores_text = font_medium.render(
+                    "No scores yet!", True, (255, 255, 255)
+                )
+                screen.blit(
+                    no_scores_text, no_scores_text.get_rect(centerx=WIDTH / 2, top=150)
+                )
 
             # Draw instruction
-            instruction = font_small.render("Press ESC or click BACK to return", True, (200, 200, 200))
-            screen.blit(instruction, instruction.get_rect(centerx=WIDTH/2, top=HEIGHT - 150))
+            instruction = font_small.render(
+                "Press ESC or click BACK to return", True, (200, 200, 200)
+            )
+            screen.blit(
+                instruction, instruction.get_rect(centerx=WIDTH / 2, top=HEIGHT - 150)
+            )
 
             # Draw back button
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            back_color = (40, 200, 40) if back_button_rect.collidepoint(mouse_x, mouse_y) else (100, 100, 100)
+            back_color = (
+                (40, 200, 40)
+                if back_button_rect.collidepoint(mouse_x, mouse_y)
+                else (100, 100, 100)
+            )
             pygame.draw.rect(screen, back_color, back_button_rect, border_radius=10)
-            pygame.draw.rect(screen, (255, 255, 255), back_button_rect, 2, border_radius=10)
+            pygame.draw.rect(
+                screen, (255, 255, 255), back_button_rect, 2, border_radius=10
+            )
             back_text = font_small.render("BACK", True, (255, 255, 255))
             screen.blit(back_text, back_text.get_rect(center=back_button_rect.center))
 
@@ -894,7 +1067,7 @@ class Menu(object):
         # In a full implementation, we'd check the global sound settings
         try:
             sound.play()
-        except:
+        except Exception:
             pass
 
 
@@ -903,15 +1076,17 @@ def construct_nightmare(size):
 
     boxsize = 8
     bordersize = 1
-    vals = '1235' # only the lower values, for darker colors and greater fear
+    vals = "1235"  # only the lower values, for darker colors and greater fear
     arr = pygame.PixelArray(surf)
     for x in range(0, len(arr), boxsize):
         for y in range(0, len(arr[x]), boxsize):
+            color = int(
+                "".join([random.choice(vals) + random.choice(vals) for _ in range(3)]),
+                16,
+            )
 
-            color = int(''.join([random.choice(vals) + random.choice(vals) for _ in range(3)]), 16)
-
-            for LX in range(x, x+(boxsize - bordersize)):
-                for LY in range(y, y+(boxsize - bordersize)):
+            for LX in range(x, x + (boxsize - bordersize)):
+                for LY in range(y, y + (boxsize - bordersize)):
                     if LX < len(arr) and LY < len(arr[x]):
                         arr[LX][LY] = color
     del arr
@@ -920,6 +1095,7 @@ def construct_nightmare(size):
 
 class SoundManager:
     """Manages sound settings for the entire game"""
+
     def __init__(self):
         self.sound_muted = False
         self.sound_volume = 0.5  # Volume level (0.0 to 1.0)
@@ -943,7 +1119,7 @@ class SoundManager:
         if not self.sound_muted:
             try:
                 sound.play()
-            except:
+            except Exception:
                 pass
 
 
@@ -961,7 +1137,9 @@ def main():
 
     # Load and play background music
     try:
-        background_music = os.path.join(os.path.dirname(__file__), "resources", "sounds", "background.wav")
+        background_music = os.path.join(
+            os.path.dirname(__file__), "resources", "sounds", "background.wav"
+        )
         pygame.mixer.music.load(background_music)
         pygame.mixer.music.play(-1)  # Loop indefinitely
         pygame.mixer.music.set_volume(sound_manager.sound_volume)  # Set initial volume
@@ -973,5 +1151,6 @@ def main():
     pygame.display.set_caption("TeTris")
     Menu().main(screen)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
